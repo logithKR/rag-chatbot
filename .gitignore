@@ -1,0 +1,15 @@
+venv/
+
+# Python Cache
+backend/__pycache__/
+
+# Live Database
+backend/database/
+
+# Live Index
+backend/faiss_index/
+
+# Sensitive Files
+backend/token.json
+backend/client_secret.json
+backend/firebase/*.json
