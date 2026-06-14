@@ -9,9 +9,6 @@ import shutil
 from dotenv import load_dotenv
 from datetime import datetime, date, timedelta
 import pytz
-import random
-import hashlib
-
 
 # --- NEW IMPORTS FOR READING DOCX/PDF ---
 import docx  # From python-docx
