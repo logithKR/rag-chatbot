@@ -5,11 +5,8 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
-    phone: '',
     email: '',
-    user_type: 'Student',
   });
-  const [otp, setOtp] = useState(''); // <-- NEW: State for OTP
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -40,8 +37,6 @@ const LandingPage = () => {
         localStorage.setItem('bitChatbotUser', JSON.stringify({
           name: formData.name,
           email: formData.email,
-          phone: formData.phone,
-          userType: formData.user_type.toLowerCase()
         }));
         navigate('/chat');
       }, 2000);
@@ -51,8 +46,7 @@ const LandingPage = () => {
 
   // Auto-focus and scroll into view to prevent keyboard hiding input
   useEffect(() => {
-    // MODIFIED: Now focuses on steps 0, 1, 2, and 4 (OTP step)
-    if (inputRef.current && (currentStep < 3 || currentStep === 4) && !showAdminLogin) {
+    if (inputRef.current && currentStep < 2 && !showAdminLogin) {
       inputRef.current.focus();
       // Scroll input into view when keyboard appears on mobile
       setTimeout(() => {
@@ -69,61 +63,19 @@ const LandingPage = () => {
     setAdminCredentials({ ...adminCredentials, [e.target.name]: e.target.value });
   };
 
-  // --- NEW: Function to request OTP ---
-  const handleRequestOtp = async () => {
-    if (!isStepValid()) return; // Should be valid (step 3 check)
-    
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/request-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formData.email }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Failed to send OTP');
-      }
-
-      // Success, move to OTP step
-      setCurrentStep(4); 
-
-    } catch (err) {
-      console.error(err);
-      setError(err.message || 'An error occurred. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-
-  // --- MODIFIED: handleSubmit now verifies OTP ---
   const handleSubmit = async () => {
-    // Step 4 (OTP) is now the final step
     if (!isStepValid()) return;
     
     setError('');
     setIsLoading(true);
 
     try {
-      // Basic checks (should be covered by steps, but good to double-check)
-      if (!formData.name || !formData.email || !formData.phone) {
+      if (!formData.name || !formData.email) {
         setError('Please fill in all fields');
         setIsLoading(false);
         return;
       }
-
-      // NEW: OTP validation
-      if (!otp || otp.length !== 6) {
-        setError('Please enter a valid 6-digit OTP');
-        setIsLoading(false);
-        return;
-      }
       
-      // Validation on other fields (from original function)
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(formData.email)) {
         setError('Please enter a valid email address');
@@ -131,14 +83,6 @@ const LandingPage = () => {
         return;
       }
 
-      const phoneRegex = /^[0-9]{10}$/;
-      if (!phoneRegex.test(formData.phone)) {
-        setError('Please enter a valid 10-digit phone number');
-        setIsLoading(false);
-        return;
-      }
-
-      // MODIFIED: Send OTP to the /login endpoint
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: {
@@ -147,12 +91,9 @@ const LandingPage = () => {
         body: JSON.stringify({
           name: formData.name,
           email: formData.email,
-          phone: formData.phone,
-          otp: otp, // <-- NEW: Send the OTP
         }),
       });
 
-      // Handle bad response (e.g., "Invalid OTP")
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.error || 'Login failed');
@@ -161,7 +102,6 @@ const LandingPage = () => {
       setShowSuccess(true);
     } catch (err) {
       console.error(err);
-      // Show backend error (like "Invalid OTP")
       setError(err.message || 'An error occurred. Please try again.');
     } finally {
       setIsLoading(false);
@@ -181,15 +121,10 @@ const LandingPage = () => {
     }
   };
 
-  // --- MODIFIED: handleNext now triggers OTP request at step 3 ---
   const handleNext = () => {
     if (!isStepValid()) return;
 
-    if (currentStep === 3) {
-      // We are on the "User Type" step. Time to request the OTP.
-      handleRequestOtp();
-    } else if (currentStep < 4) { // MODIFIED: was < 3
-      // For steps 0, 1, 2
+    if (currentStep < 1) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -201,25 +136,19 @@ const LandingPage = () => {
     }
   };
 
-  // --- MODIFIED: Added step 4 validation ---
   const isStepValid = () => {
     switch (currentStep) {
       case 0: return formData.name.trim().length > 0;
-      case 1: return formData.phone.trim().length === 10 && /^\d+$/.test(formData.phone);
-      case 2: return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email);
-      case 3: return formData.user_type !== '';
-      case 4: return otp.trim().length === 6 && /^\d+$/.test(otp); // <-- NEW
+      case 1: return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email);
       default: return false;
     }
   };
 
-  // --- MODIFIED: handleKeyPress now checks for step < 4 ---
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && isStepValid()) {
-      if (currentStep < 4) { // MODIFIED: was < 3
+      if (currentStep < 1) {
         handleNext();
       } else {
-        // We are on the last step (OTP)
         handleSubmit();
       }
     }
@@ -252,28 +181,6 @@ const LandingPage = () => {
       case 1:
         return (
           <div>
-            <label htmlFor="phone-input" className="block text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-white">
-              Your phone number
-            </label>
-            <input 
-              id="phone-input"
-              ref={inputRef}
-              type="tel" 
-              name="phone" 
-              placeholder="10-digit mobile number" 
-              value={formData.phone} 
-              onChange={handleChange} 
-              onKeyPress={handleKeyPress}
-              className={inputClass} 
-              maxLength="10" 
-              inputMode="numeric" 
-              autoComplete="tel"
-            />
-          </div>
-        );
-      case 2:
-        return (
-          <div>
             <label htmlFor="email-input" className="block text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-white">
               Email address
             </label>
@@ -291,65 +198,11 @@ const LandingPage = () => {
             />
           </div>
         );
-      case 3:
-        return (
-          <div>
-            <label className="block text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-white">
-              I am a...
-            </label>
-            <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4">
-              {['Student', 'Parent', 'Staff'].map((type) => (
-                <button 
-                  key={type} 
-                  type="button"
-                  className={`px-3 sm:px-6 py-4 sm:py-6 rounded-xl sm:rounded-2xl text-sm sm:text-lg font-bold transition-all duration-300 ${
-                    formData.user_type === type 
-                      ? 'bg-indigo-500/40 border-2 border-indigo-500 text-white shadow-lg scale-105' 
-                      : 'bg-white/10 border-2 border-white/20 text-white hover:bg-white/15 active:bg-white/20 active:scale-95'
-                  }`} 
-                  onClick={() => {
-                    setFormData({ ...formData, user_type: type });
-                  }}
-                  onKeyPress={handleKeyPress} // Allow enter on buttons
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      // --- NEW: OTP Step ---
-      case 4:
-        return (
-          <div>
-            <label htmlFor="otp-input" className="block text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-white">
-              Verify your Email
-            </label>
-            <p className="text-white/80 text-sm sm:text-base mb-4">
-              An OTP has been sent to your registered email: <strong>{formData.email}</strong>
-            </p>
-            <input 
-              id="otp-input"
-              ref={inputRef}
-              type="tel" 
-              name="otp" 
-              placeholder="Enter 6-digit OTP" 
-              value={otp} 
-              onChange={(e) => setOtp(e.target.value)}
-              onKeyPress={handleKeyPress}
-              className={inputClass} 
-              autoComplete="one-time-code"
-              maxLength="6"
-              inputMode="numeric"
-            />
-          </div>
-        );
       default: return null;
     }
   };
 
-  // --- NEW: Variable to check if we are requesting OTP (for button spinner) ---
-  const isRequestingOtp = isLoading && currentStep === 3;
+
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -555,9 +408,8 @@ const LandingPage = () => {
                     <p className="text-sm sm:text-base text-white/65">Fill in your details to begin your journey</p>
                   </div>
 
-                  {/* --- MODIFIED: Progress bar now has 5 steps --- */}
                   <div className="flex gap-2 sm:gap-3 mb-6 sm:mb-8 justify-center">
-                    {[0, 1, 2, 3, 4].map((s) => ( // MODIFIED: was [0, 1, 2, 3]
+                    {[0, 1].map((s) => (
                       <div 
                         key={s} 
                         className={`h-1.5 w-12 sm:w-14 rounded-full transition-all duration-300 ${
@@ -579,21 +431,14 @@ const LandingPage = () => {
                         Back
                       </button>
                     )}
-                    {/* --- MODIFIED: Show "Next" button until step 4 --- */}
-                    {currentStep < 4 ? ( // MODIFIED: was < 3
+                    {currentStep < 1 ? (
                       <button 
                         type="button" 
                         onClick={handleNext} 
-                        disabled={!isStepValid() || isRequestingOtp} // MODIFIED: Disable if requesting OTP
+                        disabled={!isStepValid()}
                         className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-xl sm:rounded-2xl text-white text-base sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2"
                       >
-                        {/* --- NEW: Show loading spinner on "Next" when requesting OTP --- */}
-                        {isRequestingOtp ? (
-                          <>
-                            <div className="w-4 sm:w-5 h-4 sm:h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span>Requesting OTP...</span>
-                          </>
-                        ) : 'Next'}
+                        Next
                       </button>
                     ) : (
                       <button 
@@ -602,8 +447,7 @@ const LandingPage = () => {
                         disabled={!isStepValid() || isLoading} 
                         className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-xl sm:rounded-2xl text-white text-base sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 transition-all"
                       >
-                        {/* This is the final submit spinner, it's correct */}
-                        {isLoading && !isRequestingOtp ? ( 
+                        {isLoading ? ( 
                           <>
                             <div className="w-4 sm:w-5 h-4 sm:h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             <span>Submitting...</span>

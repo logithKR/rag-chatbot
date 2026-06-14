@@ -11,7 +11,7 @@ from datetime import datetime, date, timedelta
 import pytz
 import random
 import hashlib
-import gmail_send_otp
+
 
 # --- NEW IMPORTS FOR READING DOCX/PDF ---
 import docx  # From python-docx
@@ -41,12 +41,6 @@ if "GOOGLE_API_KEY" not in os.environ:
     print("Error: GOOGLE_API_KEY not found in .env file.")
     sys.exit(1)
 
-EMAIL_SENDER = os.environ.get("email_id")
-if not EMAIL_SENDER:
-    print("Error: email_id not found in .env file.")
-    print("This is required as the 'From' address for sending OTPs.")
-    sys.exit(1)
-
 # --- 2. Define All Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOCUMENTS_PATH = os.path.join(BASE_DIR, "documents")
@@ -55,7 +49,7 @@ DATABASE_DIR = os.path.join(BASE_DIR, "database")
 
 ESCALATED_DB_PATH = os.path.join(DATABASE_DIR, "user_details.db")
 USERS_DB_PATH = os.path.join(DATABASE_DIR, "all_users.db")
-OTP_DB_PATH = os.path.join(DATABASE_DIR, "otp.db")
+
 # --- RENAMED: DB for Editor ---
 EDITOR_STAFF_DB_PATH = os.path.join(DATABASE_DIR, "editor_staff.db")
 EDIT_LOGS_DB_PATH = os.path.join(DATABASE_DIR, "edit_logs.db")
@@ -109,20 +103,7 @@ def setup_databases():
         conn_users.close()
         print(f"All users database initialized: {USERS_DB_PATH}")
 
-        # --- DB 3: OTP Requests ---
-        conn_otp = sqlite3.connect(OTP_DB_PATH)
-        cursor_otp = conn_otp.cursor()
-        cursor_otp.execute("""
-        CREATE TABLE IF NOT EXISTS otp_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL,
-            otp_hash TEXT NOT NULL,
-            expires_at TEXT NOT NULL
-        )
-        """)
-        conn_otp.commit()
-        conn_otp.close()
-        print(f"OTP database initialized: {OTP_DB_PATH}")
+
 
         # --- DB 4: Editor Staff DB (File Renamed) ---
         conn_staff = sqlite3.connect(EDITOR_STAFF_DB_PATH)
@@ -186,7 +167,7 @@ setup_databases()
 # --- 4. Initialize Google Embedding Model ---
 print("Initializing Google Generative AI Embedding model (uses API)...")
 try:
-    embedding_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
     print("Google Embedding model (API) is ready.")
 except Exception as e:
     print(f"Error initializing Google embedding model: {e}")
@@ -382,12 +363,6 @@ def update_user_last_seen(email):
     except Exception as e:
         print(f"Error updating last_seen for {email}: {e}")
 
-def generate_otp(length=6):
-    return "".join([str(random.randint(0, 9)) for _ in range(length)])
-
-def hash_otp(otp):
-    return hashlib.sha256(otp.encode()).hexdigest()
-
 def log_editor_action(staff_id, action, document_name):
     try:
         timestamp = datetime.now(IST_TZ).isoformat()
@@ -405,37 +380,7 @@ def log_editor_action(staff_id, action, document_name):
         print(f"Logged action: {action} for {document_name} by {staff_id}")
     except Exception as e:
         print(f"Error logging editor action: {e}")
-
 # --- 9. User API Endpoints ---
-@app.route('/request-otp', methods=['POST'])
-def request_otp():
-    try:
-        data = request.json
-        email = data.get('email')
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-        otp = generate_otp()
-        otp_hashed = hash_otp(otp)
-        now = datetime.now(IST_TZ)
-        expires = now + timedelta(minutes=10)
-        expires_at_str = expires.isoformat()
-        conn = sqlite3.connect(OTP_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM otp_requests WHERE email = ?", (email,))
-        cursor.execute(
-            "INSERT INTO otp_requests (email, otp_hash, expires_at) VALUES (?, ?, ?)",
-            (email, otp_hashed, expires_at_str)
-        )
-        conn.commit()
-        conn.close()
-        if not gmail_send_otp.send_otp_email_gmail(email, otp):
-            print(f"Failed to send OTP email to {email}")
-            return jsonify({"error": "Failed to send OTP email"}), 500
-        return jsonify({"status": "success", "message": "OTP sent to your email."})
-    except Exception as e:
-        print(f"Error in /request-otp: {e}")
-        return jsonify({"error": "An internal server error occurred"}), 500
-
 @app.route('/login', methods=['POST'])
 def login_user():
     try:
@@ -443,27 +388,8 @@ def login_user():
         user_name = data.get('name')
         email = data.get('email')
         phone = data.get('phone')
-        otp_submitted = data.get('otp')
-        if not email or not otp_submitted:
-            return jsonify({"error": "Email and OTP are required"}), 400
-        
-        conn_otp = sqlite3.connect(OTP_DB_PATH)
-        cursor_otp = conn_otp.cursor()
-        now_str = datetime.now(IST_TZ).isoformat()
-        otp_submitted_hash = hash_otp(otp_submitted)
-        cursor_otp.execute(
-            "SELECT id FROM otp_requests WHERE email = ? AND otp_hash = ? AND expires_at > ?",
-            (email, otp_submitted_hash, now_str)
-        )
-        valid_otp_row = cursor_otp.fetchone()
-        
-        if not valid_otp_row:
-            conn_otp.close()
-            return jsonify({"error": "Invalid or expired OTP"}), 401
-        
-        cursor_otp.execute("DELETE FROM otp_requests WHERE id = ?", (valid_otp_row[0],))
-        conn_otp.commit()
-        conn_otp.close()
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
         
         timestamp = datetime.now(IST_TZ).isoformat()
         conn = sqlite3.connect(USERS_DB_PATH)
@@ -489,12 +415,10 @@ def login_user():
         return jsonify({"status": "success", "message": message, "email": email})
 
     except sqlite3.IntegrityError:
-        if 'conn_otp' in locals() and conn_otp: conn_otp.close()
         if 'conn' in locals() and conn: conn.close()
         update_user_last_seen(email)
         return jsonify({"status": "success", "message": "Login successful", "email": email})
     except Exception as e:
-        if 'conn_otp' in locals() and conn_otp: conn_otp.close()
         if 'conn' in locals() and conn: conn.close()
         print(f"Error in /login: {e}")
         return jsonify({"error": "An internal server error occurred"}), 500
@@ -512,10 +436,12 @@ def chat():
             return jsonify({"error": "Query and email are required"}), 400
 
         update_user_last_seen(email)
-        print(f"\nReceived query from {email}: {query}")
+        safe_query = query.encode('ascii', 'ignore').decode('ascii')
+        print(f"\nReceived query from {email}: {safe_query}")
         
         answer = rag_chain.invoke(query)
-        print(f"Generated answer: {answer}")
+        safe_answer = answer.encode('ascii', 'ignore').decode('ascii')
+        print(f"Generated answer: {safe_answer}")
 
         trigger_message = "We have received your query, soon our concerned department will contact you. Thank You!"
         if answer.strip() == trigger_message:
@@ -537,8 +463,10 @@ def chat():
             print("Standard response. Not saving to escalated database.")
         return jsonify({"answer": answer})
     except Exception as e:
-        print(f"An error occurred in the /chat route: {e}")
-        return jsonify({"error": "An internal server error occurred"}), 500
+        import traceback
+        trace = traceback.format_exc()
+        print(f"An error occurred in the /chat route: {e}\n{trace}", flush=True)
+        return jsonify({"error": str(e), "trace": trace}), 500
 
 # --- 10. Admin Endpoints ---
 @app.route('/admin/stats', methods=['GET'])
@@ -1179,7 +1107,7 @@ def commit_index():
 if __name__ == "__main__":
     print("\n--- BIT Chatbot Backend is Starting ---")
     print(f"--- Database File: {EDITOR_STAFF_DB_PATH} ---")
-    print("Using Gmail API for sending OTPs.")
+
     print("Editor and Admin endpoints are active.")
     print("PDF and DOCX text extraction is ENABLED.")
     print("Access the API at http://127.0.0.1:5000")

@@ -8,8 +8,16 @@ backend/database/
 
 # Live Index
 backend/faiss_index/
+backend/faiss_index_google/
 
 # Sensitive Files
 backend/token.json
 backend/client_secret.json
 backend/firebase/*.json
+.env
+backend/.env
+**/.env
+
+# Node modules
+node_modules/
+bit-chatbot-frontend/node_modules/
